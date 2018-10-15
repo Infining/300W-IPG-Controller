@@ -9,6 +9,8 @@ void setup() {
   Serial.begin(115200);
 }
 
+// LSRFN 5.0 1.0 2.0 3.0 4.0 10.0 100.0 0.0 -1.0
+
 void loop() {
   // put your main code here, to run repeatedly:
   currentTime = micros() - bootTime;

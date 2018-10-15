@@ -15,11 +15,22 @@ unsigned long currentLoopTime;
 unsigned long diff1Time;
 unsigned long diff2Time;
 
+//----SIMULATED LASER VARIALBES----
+int laserPin = 6;
+double laserCurrent = 0.0; //percentage
+bool laserKeyswitchON = true; // physical laser keyswitch state: true => ON position, false => REM position
+bool laserEmission = false; // laser emission state: true => on, false => off
+bool laserModulation = false; // laser modulation state: true => on, false => off
+bool laserExternalControl = false; // laser external control state: true => on, false => off
+
 //----SETUP----
 void setup() {
 
   // get start time (microseconds) from the time the "laser" was booted:
   startTime = micros();
+
+  // simulated laser output LED pin
+  pinMode(laserPin, OUTPUT);
 
   // initiate Serials
   Serial.begin(115200); // Serial console debugger
@@ -43,6 +54,11 @@ void loop() {
   mockLaserResponseToGalileo = mockConstructLaserResponse(mockInternalLaserCommand);
   mockSendResponseToGalileo(mockLaserResponseToGalileo);
 
+  if (laserEmission) {
+    analogWrite(laserPin, (int)((laserCurrent / (double)100.0) * (int)255));
+  } else {
+    analogWrite(laserPin, 0);
+  }
 }
 
 //----UTILITY FUNCTIONS----
@@ -55,6 +71,7 @@ std::string serialRead(Stream *serialX, char endChar) {
     for (int n = 0; buff != endChar; n++) {
         buff = serialX->read();
         serialString += buff;
+        delayMicroseconds(1);
     }
   }
 
@@ -154,7 +171,7 @@ std::string mockConstructLaserResponse(std::string command) {
   std::string commandType = "";
   std::string commandArg = "";
   std::string processedCommand = "";
-  float commandArgValue;
+  double commandArgValue;
 
   std::string response = "";
 
@@ -174,14 +191,14 @@ std::string mockConstructLaserResponse(std::string command) {
 
     // mocking of the response creation
     if (commandType == "SDC") {
-      if (commandArgValue >= 10.0 && commandArgValue <= 100.0) {
-        response = "SDC: " + floatToString(commandArgValue);
+      if ((commandArgValue >= 10.0 && commandArgValue <= 100.0) || commandArgValue == 0.0) {
+        laserCurrent = commandArgValue;
+        response = "SDC: " + floatToString(laserCurrent);
       } else {
         response = "ERR: Out of Range";
       }
     } else if (commandType == "RCS") {
-      //response = "RCS: " + floatToString(random(120, 1000) / 10.0); // generate a random float within range
-      response = "RCS: 52.0";
+      response = "RCS: " + floatToString(laserCurrent);
     } else if (commandType == "RNC") {
       response = "RNC: 12.0"; // minimum current setpoint at 12%
     } else if (commandType == "RDC") {
@@ -195,17 +212,47 @@ std::string mockConstructLaserResponse(std::string command) {
     } else if (commandType == "STA") {
       response = "STA: 4100"; // TODO impliment mock laser state
     } else if (commandType == "EMON") {
-      response = "EMON"; // TODO impliment keyswitch in remote
+      if (laserKeyswitchON) {
+        laserEmission = true;
+        response = "EMON";
+      } else {
+        response = "ERR: Keyswitch in remote";
+      }
     } else if (commandType == "EMOFF") {
-      response = "EMOFF"; // TODO impliment keyswitch in remote
+      if (laserKeyswitchON) {
+        laserEmission = false;
+        response = "EMOFF";
+      } else {
+        response = "ERR: Keyswitch in remote";
+      }
     } else if (commandType == "EMOD") {
-      response = "EMOD"; // TODO impliment emission is on
+      if (laserEmission) {
+        response = "ERR: Emission is on";
+      } else {
+        laserModulation = true;
+        response = "EMOD";
+      }
     } else if (commandType == "DMOD") {
-      response = "DMOD"; // TODO impliment emission is on
+      if (laserEmission) {
+        response = "ERR: Emission is on";
+      } else {
+        laserModulation = false;
+        response = "DMOD";
+      }
     } else if (commandType == "EEC") {
-      response = "EEC"; // TODO implement emission is on
+      if (laserEmission) {
+        response = "ERR: Emission is on";
+      } else {
+        laserExternalControl = true;
+        response = "EEC";
+      }
     } else if (commandType == "DEC") {
-      response = "DEC"; // TODO implement emission is on
+      if (laserEmission) {
+        response = "ERR: Emission is on";
+      } else {
+        laserExternalControl = false;
+        response = "DEC";
+      }
     } else if (commandType == "RERR") {
       response = "RERR";
     } else if (commandType == "ABN") {
@@ -258,7 +305,6 @@ void mockSendResponseToGalileo(std::string response) {
     if (debugMode) {
       Serial.print(response.c_str());
     } else {
-      Serial.println(response.c_str());
       Serial1.print(response.c_str());
     }
     

@@ -1,8 +1,11 @@
+// TODO: validate command
+
 #include <math.h>
 #include <string>
+#include <vector>
 
 //----SETTINGS----
-const bool debugMode = true; // set if you want to debug through a serial console
+const bool debugMode = false; // set if you want to debug through a serial console
 
 //----VARIABLES----
 std::string inputCommand = ""; // a string to hold the command from the user
@@ -11,16 +14,31 @@ std::string responseFromLaser = ""; // recieved laser response
 std::string responseToUser = ""; // processed laser response
 
 //----TIMING VARIABLES----
-unsigned long startTime;
-unsigned long currentLoopTime;
+unsigned long progStartTime;
+unsigned long loopStartTime;
 unsigned long diff1Time;
 unsigned long diff2Time;
+
+//----LASER CONTROL VARIABLES----
+double delaySec = 0.0;
+double riseTSec = 0.0;
+double onDurSec = 0.0;
+double fallTSec = 0.0;
+double offDurSec = 0.0;
+double minP = 0.0;
+double maxP = 0.0;
+double phaseShiftSec = 0.0;
+double endTSec = 0.0;
+
+//----LASER STATE----
+bool laserOn = false;
+bool laserEmitting = false;
+bool laserConnected = false;
 
 //----SETUP----
 void setup() {
 
-  // get start time (microseconds) from the time the Calileo was booted:
-  startTime = micros();
+  progStartTime = micros();
 
   // initiate Serials
   Serial.begin(115200); // Serial console debugger
@@ -28,7 +46,7 @@ void setup() {
 
   if (debugMode) {
     // print startTime for debuging
-    Serial.println("--Galileo-- Start Time: " + String(startTime) + " microseconds");
+    Serial.println("--Galileo-- Start Time: " + String(progStartTime) + " microseconds");
   }
 }
 
@@ -36,23 +54,29 @@ void setup() {
 void loop() {
 
   // set the current loop time (microseconds) at the begining of the main loop
-  currentLoopTime = micros();
+  loopStartTime = micros();
 
   // command to laser
   inputCommand = readCommandFromUser();
-  if (isCommandGalileo(inputCommand)) {
-    // process command to the gailieo
-    Serial.println("Command is Galileo type");
-  } else {
-    outputCommand = processToLaserCommand(inputCommand);
-    sendCommandToLaser(outputCommand);
+  if (!inputCommand.empty()) {
+    if (isCommandGalileo(inputCommand)) {
+      processToGalileoCommand(inputCommand);
+    } else {
+      outputCommand = processToLaserCommand(inputCommand);
+      sendCommandToLaser(outputCommand);
+    }
   }
 
   // response from laser
   responseFromLaser = readResponseFromLaser();
-  responseToUser = processResonseFromLaser(responseFromLaser);
-  sendResponseToUser(responseToUser);
+  if (!responseFromLaser.empty()) {
+    responseToUser = processResonseFromLaser(responseFromLaser);
+    sendResponseToUser(responseToUser);
+  }
 
+  if (laserEmitting) {
+    sendCurrentToLaser(); // LSRFN 5.0 1.0 2.0 3.0 4.0 10.0 100.0 0.0 -1.0
+  }
 }
 
 //----UTILITY FUNCTIONS----
@@ -65,18 +89,11 @@ std::string serialRead(Stream *serialX, char endChar) {
     for (int n = 0; buff != endChar; n++) {
         buff = serialX->read();
         serialString += buff;
+        delayMicroseconds(1);
     }
   }
 
   return serialString;
-}
-
-float stringToFloat(String str) {
-
-  char buffer[10];
-  str.toCharArray(buffer, 10);
-
-  return atof(buffer);
 }
 
 char *dtostrf (double val, signed char width, unsigned char prec, char *sout) {
@@ -86,10 +103,10 @@ char *dtostrf (double val, signed char width, unsigned char prec, char *sout) {
   return sout;
 }
 
-String floatToString(float val) {
-  char buffer[10];
-  dtostrf(val, numberOfDigits(val), 1, buffer);
-  return buffer;
+std::string floatToString(float val) {
+  char buff[10];
+  dtostrf(val, numberOfDigits(val), 1, buff);
+  return std::string(buff);
 }
 
 int numberOfDigits(float val) {
@@ -118,23 +135,32 @@ std::string findCommandType(std::string command) {
   int spaceIndex = -1;
 
   spaceIndex = command.find(" ");
-  commandType = command.substr(0, spaceIndex);
-
-  return commandType;
-
-}
-
-String findCommandArg(String command) {
-  String commandArg = "";
-  int spaceIndex = -1;
-
-  spaceIndex = command.indexOf(" ");
 
   if (spaceIndex != -1) {
-    commandArg = command.substring(spaceIndex + 1);
+    commandType = command.substr(0, spaceIndex);
+  } else {
+    commandType = command.substr(0, command.length() - 1);
   }
 
-  return commandArg;
+  return commandType;
+}
+
+std::vector<std::string> findCommandArgs(std::string command) {
+  std::vector<std::string> commandArgs(9);
+  
+  int spaceIndex = -1;
+  int nextSpaceIndex = -1;
+
+  spaceIndex = command.find(" ", spaceIndex + 1);
+  nextSpaceIndex = command.find(" ", spaceIndex + 1);
+
+  for (int i = 0; spaceIndex != -1; i++) {
+    commandArgs[i] = command.substr(spaceIndex + 1, nextSpaceIndex - spaceIndex - 1);
+    spaceIndex = nextSpaceIndex;
+    nextSpaceIndex = command.find(" ", spaceIndex + 1);
+  }
+
+  return commandArgs;
 }
 
 //----GALILEO COMM FUNCTIONS----
@@ -173,17 +199,72 @@ std::string readCommandFromUser() {
 }
 
 bool isCommandGalileo(std::string command) {
-  // TODO detect if command is to galileo or laser
 
   bool galileoCommand = false;
 
   std::string commandType = findCommandType(command);
 
-  if (commandType == "LSRFN" || commandType == "PING") {
+  if (commandType == "LSRFN" || commandType == "PING" || commandType == "EMON" || commandType == "EMOFF") {
     galileoCommand = true;
   }
   
   return galileoCommand;
+}
+
+void processToGalileoCommand(std::string command) {
+
+  std::string commandType = findCommandType(command);
+
+  if (commandType == "LSRFN") {
+    std::vector<std::string> args(9);
+    args = findCommandArgs(command);
+
+    delaySec = atof(args[0].c_str());
+    riseTSec = atof(args[1].c_str());
+    onDurSec = atof(args[2].c_str());
+    fallTSec = atof(args[3].c_str());
+    offDurSec = atof(args[4].c_str());
+    minP = atof(args[5].c_str());
+    maxP = atof(args[6].c_str());
+    phaseShiftSec = atof(args[7].c_str());
+    endTSec = atof(args[8].c_str());
+    
+  } else if (commandType == "PING") {
+    outputCommand = processToLaserCommand(command);
+    sendCommandToLaser(outputCommand);
+    delayMicroseconds(10000);
+    responseFromLaser = readResponseFromLaser();
+    if (!responseFromLaser.empty()) {
+      laserConnected = true;
+      sendResponseToUser("ONLINE\r");
+    } else {
+      laserConnected = false;
+      sendResponseToUser("OFFLINE\r");
+    }
+    
+  } else if (commandType == "EMON") {
+    laserEmitting = true;
+    outputCommand = processToLaserCommand(command);
+    sendCommandToLaser(outputCommand);
+    
+  } else if (commandType == "EMOFF") {
+    laserEmitting = false;
+    outputCommand = processToLaserCommand(command);
+    sendCommandToLaser(outputCommand);
+    
+  } else {
+    if (debugMode) {
+      Serial.print("--Galileo-- Galileo command not implemented: ");
+      Serial.print(command.c_str());
+      Serial.print('\n');
+    }
+  }
+  
+  if (debugMode) {
+      Serial.print("--Galileo-- Processing Galileo command: ");
+      Serial.print(command.c_str());
+      Serial.print('\n');
+  }
 }
 
 // processes the command from the user for forwarding to the laser
@@ -307,7 +388,7 @@ void sendResponseToUser(std::string response) {
     if (debugMode) {
       Serial.println(response.c_str());
     } else {
-      Serial.print(response.c_str());
+      Serial.println(response.c_str());
     }
 
     if (debugMode) {
@@ -317,4 +398,87 @@ void sendResponseToUser(std::string response) {
 
   }
 
+}
+
+unsigned long secondsToMicros(double seconds) {
+  unsigned long microS = seconds * 1.0e6;
+  return microS;
+}
+
+double laserFun(double delaySec, double riseTSec, double onDurSec, double fallTSec, double offDurSec, double minP, double maxP, double phaseShiftSec, unsigned long t, double endTSec) {
+  
+  double val = 0.0; // output value
+
+  signed long tnew = t;
+
+  double periodSec = riseTSec + onDurSec + fallTSec + offDurSec; // period of signal
+  double r = fmod(phaseShiftSec / periodSec, 1.0); // remainder of shift accounting for period
+
+  tnew += secondsToMicros(r*periodSec); // add shift to time
+  tnew -= secondsToMicros(delaySec); // add delay to time
+
+  if (t >= secondsToMicros(endTSec) && endTSec >= 0) {
+    val = 0.0;
+  } else {
+    if (t < secondsToMicros(delaySec)) { // laser hasn't turned on yet
+      val = 0.0;
+    } else {
+
+      tnew = tnew % secondsToMicros(periodSec); // account for the periodic nature of the function
+      
+      if (tnew < secondsToMicros(riseTSec)) {
+        // power rising
+        val = (((maxP-minP) / secondsToMicros(riseTSec)) * tnew) + minP;
+      } else if (tnew >= secondsToMicros(riseTSec) && tnew < secondsToMicros(riseTSec + onDurSec)) {
+        // max power
+        val = maxP;
+      } else if (tnew >= secondsToMicros(riseTSec + onDurSec) && tnew < secondsToMicros(riseTSec + onDurSec + fallTSec)) {
+        // power falling
+        val = (((minP - maxP) / secondsToMicros(fallTSec)) * (tnew - secondsToMicros(riseTSec + onDurSec))) + maxP;
+      } else if (tnew >= secondsToMicros(riseTSec + onDurSec + fallTSec) && tnew < secondsToMicros(riseTSec + onDurSec + fallTSec + offDurSec)) {
+        // minumum power
+        val = minP;
+      }
+    }
+  }
+
+  return val;
+}
+
+void sendCurrentToLaser() {
+
+  unsigned long currentTime;
+  double current;
+  std::string currentStr;
+
+  currentTime = micros() - progStartTime;
+  current = laserFun(delaySec,
+                     riseTSec,
+                     onDurSec,
+                     fallTSec,
+                     offDurSec,
+                     minP,
+                     maxP,
+                     phaseShiftSec,
+                     currentTime, // time in microseconds
+                     endTSec
+                     );
+
+  currentStr = floatToString(current);
+
+  if (debugMode) {
+    Serial.print(("--Galileo-- Sending power to laser: " + currentStr).c_str());
+    Serial.print('\n');
+  }
+                   
+  if (debugMode) {
+    diff1Time = micros();
+  }
+  
+  Serial1.print(("SDC " + currentStr + '\r').c_str());
+  
+  if (debugMode) {
+    diff2Time = micros();
+    Serial.print("--Galileo-- Sending power to laser took: " + (String)(diff2Time-diff1Time) + " us\n");
+  }
 }
