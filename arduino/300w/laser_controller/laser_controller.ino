@@ -5,7 +5,7 @@
 #include <vector>
 
 //----SETTINGS----
-const bool debugMode = true; // set if you want to debug through a serial console
+const bool debugMode = false; // set if you want to debug through a serial console
 
 //----VARIABLES----
 std::string inputCommand = ""; // a string to hold the command from the user
