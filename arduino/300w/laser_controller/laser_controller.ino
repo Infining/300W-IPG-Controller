@@ -217,18 +217,20 @@ void processToGalileoCommand(std::string command) {
   std::string commandType = findCommandType(command);
 
   if (commandType == "LSRFN") {
-    std::vector<std::string> args(9);
-    args = findCommandArgs(command);
-
-    delaySec = atof(args[0].c_str());
-    riseTSec = atof(args[1].c_str());
-    onDurSec = atof(args[2].c_str());
-    fallTSec = atof(args[3].c_str());
-    offDurSec = atof(args[4].c_str());
-    minP = atof(args[5].c_str());
-    maxP = atof(args[6].c_str());
-    phaseShiftSec = atof(args[7].c_str());
-    endTSec = atof(args[8].c_str());
+    if (!laserEmitting) {
+      std::vector<std::string> args(9);
+      args = findCommandArgs(command);
+  
+      delaySec = atof(args[0].c_str());
+      riseTSec = atof(args[1].c_str());
+      onDurSec = atof(args[2].c_str());
+      fallTSec = atof(args[3].c_str());
+      offDurSec = atof(args[4].c_str());
+      minP = atof(args[5].c_str());
+      maxP = atof(args[6].c_str());
+      phaseShiftSec = atof(args[7].c_str());
+      endTSec = atof(args[8].c_str());
+    }
     
   } else if (commandType == "PING") {
     outputCommand = processToLaserCommand(command);
