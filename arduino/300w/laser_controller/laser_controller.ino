@@ -77,6 +77,7 @@ void loop() {
 
   if (laserEmitting) {
     sendCurrentToLaser(); // LSRFN 5.0 1.0 2.0 3.0 4.0 10.0 100.0 0.0 -1.0
+    delay(2); // required to rid of reverse question marks at 9600 baud
   }
 }
 
@@ -230,6 +231,9 @@ void processToGalileoCommand(std::string command) {
       maxP = atof(args[6].c_str());
       phaseShiftSec = atof(args[7].c_str());
       endTSec = atof(args[8].c_str());
+
+      responseToUser = processResonseFromLaser(command);
+      sendResponseToUser(responseToUser);
     }
     
   } else if (commandType == "PING") {

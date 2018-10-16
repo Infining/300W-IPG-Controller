@@ -274,7 +274,7 @@ std::string mockConstructLaserResponse(std::string command) {
     } else if (commandType == "RMEC") {
       response = "RMEC: 0";
     } else {
-      response = "BCMD";
+      response = "BCMD " + processedCommand;
     }
 
     response += '\r';
