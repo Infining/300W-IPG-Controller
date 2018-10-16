@@ -16,6 +16,7 @@ std::string responseToUser = ""; // processed laser response
 //----TIMING VARIABLES----
 unsigned long progStartTime;
 unsigned long loopStartTime;
+unsigned long emissionStartTime;
 unsigned long diff1Time;
 unsigned long diff2Time;
 
@@ -244,6 +245,7 @@ void processToGalileoCommand(std::string command) {
     
   } else if (commandType == "EMON") {
     laserEmitting = true;
+    emissionStartTime = micros();
     outputCommand = processToLaserCommand(command);
     sendCommandToLaser(outputCommand);
     
@@ -451,7 +453,7 @@ void sendCurrentToLaser() {
   double current;
   std::string currentStr;
 
-  currentTime = micros() - progStartTime;
+  currentTime = micros() - emissionStartTime;
   current = laserFun(delaySec,
                      riseTSec,
                      onDurSec,
